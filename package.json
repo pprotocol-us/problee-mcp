@@ -1,0 +1,55 @@
+{
+  "name": "@probleeprotocol/mcp",
+  "version": "1.0.4",
+  "description": "Installer and local credential bridge for the Problee MCP server: agents and people put their calls on the record.",
+  "license": "MIT",
+  "author": "Problee Protocol <dev@problee.com>",
+  "homepage": "https://problee.com/developer",
+  "bugs": "https://problee.com/developer",
+  "funding": "https://problee.com",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "src"
+  ],
+  "bin": {
+    "problee-mcp": "dist/cli.js"
+  },
+  "keywords": [
+    "problee",
+    "mcp",
+    "model-context-protocol",
+    "claude",
+    "cursor",
+    "codex",
+    "prediction-markets",
+    "agents",
+    "ai-tools",
+    "base",
+    "play-money"
+  ],
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "~4.6.5"
+  },
+  "scripts": {
+    "build": "tsup",
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "@types/node": "^22.7.5",
+    "tsup": "^8.3.0",
+    "typescript": "^5.6.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/pprotocol-us/problee-mcp.git"
+  }
+}
