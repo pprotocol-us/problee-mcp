@@ -30,6 +30,10 @@ command-line arguments:
 PROBLEE_API_KEY=<key> npx @probleeprotocol/mcp install
 ```
 
+No key yet? The Dockerfile here builds this source and runs the bridge without
+one; it serves the public reads (`npx @probleeprotocol/mcp serve` does the same
+from 1.0.5).
+
 `--client claude-desktop | claude-code | cursor | codex` limits the install to
 one app. `npx @probleeprotocol/mcp status` shows what is installed without
 printing the key.

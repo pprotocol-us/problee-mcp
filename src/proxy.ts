@@ -13,29 +13,24 @@ import {
   type ServerCapabilities,
 } from "@modelcontextprotocol/sdk/types.js";
 
+import { endpointFromDiscovery } from "./api.js";
 import { loadCredential } from "./credentials.js";
 
 export async function serveSecureProxy(version: string): Promise<void> {
   const stored = loadCredential();
   const apiKey = process.env.PROBLEE_API_KEY ?? stored?.apiKey;
-  const endpoint = process.env.PROBLEE_MCP_ENDPOINT ?? stored?.endpoint;
-  if (!apiKey || !endpoint) {
-    throw new Error(
-      "No durable Problee credential found. Run `npx @probleeprotocol/mcp register` first.",
-    );
-  }
+  const endpoint =
+    process.env.PROBLEE_MCP_ENDPOINT ?? stored?.endpoint ?? endpointFromDiscovery(null);
 
   const upstream = new Client({
     name: "@probleeprotocol/mcp-secure-proxy",
     version,
   });
-  const upstreamTransport = new StreamableHTTPClientTransport(new URL(endpoint), {
-    requestInit: {
-      headers: {
-        Authorization: `Bearer ${apiKey}`,
-      },
-    },
-  });
+  // Without a key the server lists and runs only its public reads.
+  const upstreamTransport = new StreamableHTTPClientTransport(
+    new URL(endpoint),
+    apiKey ? { requestInit: { headers: { Authorization: `Bearer ${apiKey}` } } } : undefined,
+  );
   await upstream.connect(upstreamTransport);
 
   const advertised = upstream.getServerCapabilities() ?? {};

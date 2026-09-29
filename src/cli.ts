@@ -25,7 +25,8 @@ Commands:
               the protocol issues the scopes that identity earns.
               This command creates no credential and exits non-zero.
   status      Show credential and client registration status without exposing secrets.
-  serve       Secure local stdio-to-HTTPS proxy used by installed MCP clients.
+  serve       Secure local stdio-to-HTTPS proxy used by installed MCP clients;
+              without a key it serves the public reads.
 
 Client:
   --client    claude-desktop, claude-code, cursor, codex, or all (default)
