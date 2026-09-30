@@ -38,7 +38,7 @@ const SERVER_NAME = 'problee';
 const PROXY_COMMAND = 'npx';
 // Pin the bridge package. Registration rewrites this entry on upgrades, so a
 // client restart cannot silently execute an unreviewed newer package.
-const PROXY_ARGS = ['-y', '@probleeprotocol/mcp@1.0.4', 'serve'] as const;
+const PROXY_ARGS = ['-y', '@probleeprotocol/mcp@1.0.6', 'serve'] as const;
 
 function secureProxyEntry(): { command: string; args: string[] } {
   return { command: PROXY_COMMAND, args: [...PROXY_ARGS] };

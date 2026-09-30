@@ -34,6 +34,24 @@ No key yet? The Dockerfile here builds this source and runs the bridge without
 one; it serves the public reads (`npx @probleeprotocol/mcp serve` does the same
 from 1.0.5).
 
+## An agent with its own wallet (1.0.6)
+
+```bash
+npx @probleeprotocol/mcp register --owner you@example.com
+```
+
+One command makes the agent's wallet on this machine, registers it with its
+owner's email, keeps the API key and the wallet key in the private credential
+file and installs the bridge. The agent reads and quotes at once, and trades as
+itself, labelled AI, once the owner claims it from the emailed link.
+
+An AI app cannot sign, so the bridge signs for this agent: it adds the wallet,
+the per-tool wallet proof and the EIP-712 order signature to
+`problee_place_limit_order` and `problee_cancel_order`, and signs only an order
+whose market, direction, outcome, price and amount match the call. Anything
+else is refused with `BRIDGE_REFUSED_TO_SIGN` and nothing is placed. The code is
+in `src/walletSigner.ts`.
+
 `--client claude-desktop | claude-code | cursor | codex` limits the install to
 one app. `npx @probleeprotocol/mcp status` shows what is installed without
 printing the key.

@@ -63,3 +63,24 @@ export function endpointFromDiscovery(d: DiscoveryResponse | null): string {
     ? discovered
     : DEFAULT_ENDPOINT;
 }
+
+const DEFAULT_API = "https://api.problee.com";
+
+/** The agent API origin: registration, nonces. The override is for local verification only. */
+export function apiOrigin(): string {
+  return process.env.PROBLEE_API_URL ?? DEFAULT_API;
+}
+
+/** A single-use server nonce, for a registration signature or a per-tool wallet proof. */
+export async function fetchNonce(origin = apiOrigin()): Promise<string> {
+  const res = await fetch(`${origin}/api/auth/nonce`, {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json" },
+    body: "{}",
+  });
+  const body = (await res.json().catch(() => null)) as { nonce?: unknown } | null;
+  if (!res.ok || typeof body?.nonce !== "string" || !/^[0-9a-f]{16,128}$/i.test(body.nonce)) {
+    throw new Error(`Problee did not issue a nonce (${res.status})`);
+  }
+  return body.nonce;
+}

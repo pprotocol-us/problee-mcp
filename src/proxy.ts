@@ -10,17 +10,21 @@ import {
   ListResourceTemplatesRequestSchema,
   ListToolsRequestSchema,
   ReadResourceRequestSchema,
+  type CallToolResult,
   type ServerCapabilities,
 } from "@modelcontextprotocol/sdk/types.js";
 
 import { endpointFromDiscovery } from "./api.js";
 import { loadCredential } from "./credentials.js";
+import { bridgeWalletFrom, describeSignedTools, signingCallTool } from "./walletSigner.js";
 
 export async function serveSecureProxy(version: string): Promise<void> {
   const stored = loadCredential();
   const apiKey = process.env.PROBLEE_API_KEY ?? stored?.apiKey;
   const endpoint =
     process.env.PROBLEE_MCP_ENDPOINT ?? stored?.endpoint ?? endpointFromDiscovery(null);
+  // A registered agent's own wallet, when this credential holds one.
+  const wallet = bridgeWalletFrom(stored, apiKey);
 
   const upstream = new Client({
     name: "@probleeprotocol/mcp-secure-proxy",
@@ -50,12 +54,14 @@ export async function serveSecureProxy(version: string): Promise<void> {
   );
 
   if (advertised.tools) {
-    downstream.setRequestHandler(ListToolsRequestSchema, (request) =>
-      upstream.listTools(request.params),
-    );
-    downstream.setRequestHandler(CallToolRequestSchema, (request) =>
-      upstream.callTool(request.params),
-    );
+    const forward = (params: Parameters<typeof upstream.callTool>[0]) =>
+      upstream.callTool(params) as Promise<CallToolResult>;
+    const callTool = wallet ? signingCallTool(wallet, forward) : forward;
+    downstream.setRequestHandler(ListToolsRequestSchema, async (request) => {
+      const listed = await upstream.listTools(request.params);
+      return wallet ? describeSignedTools(listed) : listed;
+    });
+    downstream.setRequestHandler(CallToolRequestSchema, (request) => callTool(request.params));
   }
   if (advertised.resources) {
     downstream.setRequestHandler(ListResourcesRequestSchema, (request) =>

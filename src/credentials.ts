@@ -21,7 +21,21 @@ export interface StoredCredential {
   endpoint: string;
   apiKeyId?: string;
   keyPrefix?: string;
+  /** A registered agent (`register --owner`): its ExternalAgent id and its own wallet. */
+  agentId?: string;
+  wallet?: { address: string; privateKey: string };
   storedAt: string;
+}
+
+function isWallet(value: unknown): boolean {
+  if (value === undefined) return true;
+  const wallet = value as { address?: unknown; privateKey?: unknown } | null;
+  return (
+    typeof wallet?.address === 'string' &&
+    /^0x[0-9a-fA-F]{40}$/.test(wallet.address) &&
+    typeof wallet.privateKey === 'string' &&
+    /^0x[0-9a-fA-F]{64}$/.test(wallet.privateKey)
+  );
 }
 
 function defaultCredentialPath(): string {
@@ -67,7 +81,8 @@ export function loadCredential(): StoredCredential | null {
     typeof (parsed as Partial<StoredCredential>).apiKey !== 'string' ||
     !(parsed as Partial<StoredCredential>).apiKey ||
     typeof (parsed as Partial<StoredCredential>).endpoint !== 'string' ||
-    !(parsed as Partial<StoredCredential>).endpoint
+    !(parsed as Partial<StoredCredential>).endpoint ||
+    !isWallet((parsed as Partial<StoredCredential>).wallet)
   ) {
     throw new Error(`Problee credential file has an unsupported shape: ${path}`);
   }

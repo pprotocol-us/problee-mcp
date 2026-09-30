@@ -1,29 +1,33 @@
 import { spawn } from 'node:child_process';
 import { argv, exit, stderr, stdout } from 'node:process';
 
-import { endpointFromDiscovery, fetchDiscovery } from './api.js';
+import { generatePrivateKey, privateKeyToAccount } from 'viem/accounts';
+
+import { apiOrigin, endpointFromDiscovery, fetchDiscovery, fetchNonce } from './api.js';
 import { ALL_CLIENTS, installFor, statusAll } from './clients.js';
 import type { ClientId, Result } from './clients.js';
 import { credentialPath, loadCredential, storeCredential } from './credentials.js';
 import { serveSecureProxy } from './proxy.js';
 
-const CLI_VERSION = '1.0.4';
+const CLI_VERSION = '1.0.6';
 const HELP = `\
 problee-mcp ${CLI_VERSION} — securely install the Problee MCP server
 
 Usage:
+  npx @probleeprotocol/mcp register --owner <email> [--name <name>] [--client <id>]
   PROBLEE_API_KEY=<key> npx @probleeprotocol/mcp install [--client <id>]
-  npx @probleeprotocol/mcp register [--client <id>]
   npx @probleeprotocol/mcp status
   npx @probleeprotocol/mcp --help
 
 Commands:
+  register    With --owner: create an agent with its own wallet, register it
+              with its owner's email and install it. It reads and quotes at once
+              and trades as itself, labelled AI, once the owner claims it from
+              the emailed link. The wallet key stays in the private credential
+              file; the local bridge signs this agent's orders with it.
+              Without --owner: print the two ways to get a key.
   install     Install from an existing private credential or PROBLEE_API_KEY.
               API keys are rejected on command-line arguments.
-  register    Print how to obtain an API key and open the registration page.
-              Registration is self-service since 2026-08-23: prove a wallet and
-              the protocol issues the scopes that identity earns.
-              This command creates no credential and exits non-zero.
   status      Show credential and client registration status without exposing secrets.
   serve       Secure local stdio-to-HTTPS proxy used by installed MCP clients;
               without a key it serves the public reads.
@@ -32,8 +36,8 @@ Client:
   --client    claude-desktop, claude-code, cursor, codex, or all (default)
 
 Examples:
+  npx @probleeprotocol/mcp register --owner you@example.com
   PROBLEE_API_KEY=<key> npx @probleeprotocol/mcp install --client cursor
-  npx @probleeprotocol/mcp register
   npx @probleeprotocol/mcp status
 
 Docs: https://problee.com/for-agents
@@ -128,11 +132,15 @@ async function cmdInstall(flags: Record<string, string>): Promise<void> {
     fail('no private credential found; run `npx @probleeprotocol/mcp register`');
   }
 
+  // A registered agent's id and wallet belong to its key: kept with it, dropped for another key.
+  const sameKey = existing?.apiKey === apiKey;
   storeCredential({
     apiKey,
     endpoint,
-    apiKeyId: existing?.apiKeyId,
-    keyPrefix: existing?.keyPrefix ?? apiKey.slice(0, 8),
+    apiKeyId: sameKey ? existing?.apiKeyId : undefined,
+    keyPrefix: sameKey ? existing?.keyPrefix ?? apiKey.slice(0, 8) : apiKey.slice(0, 8),
+    agentId: sameKey ? existing?.agentId : undefined,
+    wallet: sameKey ? existing?.wallet : undefined,
   });
   stdout.write(`Credential: ${credentialPath()} (private; key not printed)\n`);
   stdout.write(`Endpoint:   ${endpoint}\n`);
@@ -155,42 +163,122 @@ function openVerificationUrl(url: string): void {
 const REGISTER_URL = 'https://problee.com/me/settings/agents';
 
 /**
- * Registration left this CLI on 2026-08-23.
- *
- * This command used to drive the three-endpoint device flow, which is deleted;
- * a call to it now answers 404, so the command could only ever fail. The wallet
- * signature is the authority: prove control of a wallet and the protocol
- * issues the scopes that identity is entitled to, with no browser handoff to
- * poll for and no separate tier or spend-consent to request.
- *
- * The CLI deliberately does not touch wallet key material, so it hands the
- * operator the two real paths rather than inventing a third. It exits non-zero
- * because it produced no credential: a `register && install` chain must stop
- * here, not proceed to an install with nothing to install.
+ * Without --owner: the two ways to a key (the account's own, and the claimed
+ * agent). It exits non-zero because it produced no credential, so a
+ * `register && install` chain stops here rather than installing nothing.
  */
-async function cmdRegister(flags: Record<string, string>): Promise<void> {
-  assertNoArgvSecret(flags);
-  const clients = resolveClients(flags.client);
+function printKeyPaths(clients: readonly ClientId[]): never {
   stdout.write(
     [
-      'Problee registration is self-service and no longer runs in this CLI.',
+      'There are two ways to get an API key:',
       '',
-      'Get an API key from your account — every account can trade through the API and MCP, however it signed up:',
-      `  1. Browser   ${REGISTER_URL}`,
-      '               Sign in, then Create agent key. It is shown once.',
-      '  2. API       POST https://api.problee.com/api/agent/v1/register',
-      '               Closed by default since 2026-09-16. Read registration.paths[].status on',
-      '               GET https://api.problee.com/api/agent/v1/mcp-discovery before calling it.',
+      `  1. Your account   ${REGISTER_URL}`,
+      '                    Sign in, then Create agent key. It is shown once and trades as you,',
+      '                    with full execute scopes; there is no tier to request.',
+      '  2. Claimed agent  npx @probleeprotocol/mcp register --owner <email>',
+      "                    Creates the agent's own wallet here and registers it with ownerEmail",
+      '                    (POST https://api.problee.com/api/agent/v1/register). It reads and quotes',
+      '                    at once, and trades as itself once its owner claims it from the emailed link.',
+      '                    Closed by default. Read registration.claim.status on',
+      '                    GET https://api.problee.com/api/agent/v1/mcp-discovery before calling it.',
       '',
-      'The key carries full execute scopes; there is no tier to request.',
-      '',
-      'Then install without putting the key in process arguments:',
+      'With a key from your account, install without putting it in process arguments:',
       `  PROBLEE_API_KEY=<key> npx @probleeprotocol/mcp install --client ${clients.join(',')}`,
       '',
     ].join('\n')
   );
   openVerificationUrl(REGISTER_URL);
   fail('no credential was created; run install with PROBLEE_API_KEY once you hold a key');
+}
+
+interface RegisterReply {
+  id?: unknown;
+  rawApiKey?: unknown;
+  apiKeyId?: unknown;
+  keyPrefix?: unknown;
+  claim?: { expiresAt?: unknown };
+  detail?: unknown;
+  title?: unknown;
+  reason?: unknown;
+}
+
+/**
+ * The claimed-agent path in one command (row 38). The wallet is made here and
+ * never leaves this machine: its key goes into the private credential file
+ * beside the API key, and the local bridge signs this agent's wallet proofs and
+ * orders with it (walletSigner.ts). The owner email is the person accountable
+ * for the agent; the server emails them the claim link.
+ */
+async function cmdRegister(flags: Record<string, string>): Promise<void> {
+  assertNoArgvSecret(flags);
+  const clients = resolveClients(flags.client);
+  const owner = flags.owner?.trim();
+  if (!owner || owner === 'true') printKeyPaths(clients);
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(owner)) fail('--owner must be the email address of the person accountable for the agent');
+
+  const existing = loadCredential();
+  if (existing) {
+    fail(
+      `a credential already exists at ${credentialPath()} (${existing.keyPrefix ?? 'stored'}…); ` +
+        'to register another agent, set PROBLEE_CREDENTIALS_FILE to a new path'
+    );
+  }
+  const discovery = await fetchDiscovery();
+  const claim = (discovery?.registration as { claim?: { status?: unknown } } | undefined)?.claim;
+  if (claim?.status !== 'open') {
+    fail('claimed-agent registration is not open right now (registration.claim.status); nothing was created');
+  }
+
+  const privateKey = generatePrivateKey();
+  const account = privateKeyToAccount(privateKey);
+  const wallet = account.address.toLowerCase();
+  const name = flags.name && flags.name !== 'true' ? flags.name : `Agent ${wallet.slice(2, 8)}`;
+  const origin = apiOrigin();
+  const signedMessage = `problee-register:${wallet}:${await fetchNonce(origin)}`;
+  const res = await fetch(`${origin}/api/agent/v1/register`, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify({
+      name,
+      walletAddress: account.address,
+      walletSignature: await account.signMessage({ message: signedMessage }),
+      signedMessage,
+      ownerEmail: owner,
+    }),
+  });
+  const reply = (await res.json().catch(() => ({}))) as RegisterReply;
+  if (res.status !== 201 || typeof reply.rawApiKey !== 'string' || typeof reply.id !== 'string') {
+    const why = [reply.reason, reply.detail ?? reply.title].filter((part) => typeof part === 'string').join(': ');
+    fail(`registration was refused (${res.status})${why ? `: ${why}` : ''}; nothing was stored`);
+  }
+
+  storeCredential({
+    apiKey: reply.rawApiKey,
+    endpoint: endpointFromDiscovery(discovery),
+    apiKeyId: typeof reply.apiKeyId === 'string' ? reply.apiKeyId : undefined,
+    keyPrefix: typeof reply.keyPrefix === 'string' ? reply.keyPrefix : reply.rawApiKey.slice(0, 8),
+    agentId: reply.id,
+    wallet: { address: account.address, privateKey },
+  });
+  const until = typeof reply.claim?.expiresAt === 'string' ? ` (the link lasts until ${reply.claim.expiresAt})` : '';
+  stdout.write(
+    [
+      `Registered "${name}" (agent ${reply.id})`,
+      `Wallet:     ${account.address}`,
+      `Credential: ${credentialPath()} (private; the wallet key and API key are not printed)`,
+      `Owner:      ${owner} was emailed a claim link${until}.`,
+      '            The agent reads and quotes now, and trades as itself once the owner claims it.',
+      '',
+      '',
+    ].join('\n')
+  );
+  try {
+    installClients(clients);
+  } catch (error) {
+    stdout.write(
+      `${error instanceof Error ? error.message : String(error)}\nThe agent is registered; install it later with: npx @probleeprotocol/mcp install\n`
+    );
+  }
 }
 
 function cmdStatus(): void {
@@ -201,6 +289,9 @@ function cmdStatus(): void {
       ? `  ✓ credential       ${credential.keyPrefix ?? 'stored'}… (${credentialPath()}, private)\n`
       : `  · credential       not found (${credentialPath()})\n`
   );
+  if (credential?.wallet) {
+    stdout.write(`  ✓ agent wallet     ${credential.wallet.address} (signs this agent's orders locally)\n`);
+  }
   for (const entry of statusAll()) {
     const symbol = entry.registered ? '✓' : '·';
     const where = entry.endpoint ? `→ ${entry.endpoint}` : '';
@@ -208,7 +299,7 @@ function cmdStatus(): void {
       `  ${symbol} ${entry.client.padEnd(16)} ${entry.registered ? 'registered' : 'not registered'} ${where}\n      ${entry.configPath}\n`
     );
   }
-  stdout.write(`\nTo authorize and install: \`npx @probleeprotocol/mcp register\`\n`);
+  stdout.write(`\nTo create an agent and install it: \`npx @probleeprotocol/mcp register --owner <email>\`\n`);
 }
 
 async function main(): Promise<void> {
