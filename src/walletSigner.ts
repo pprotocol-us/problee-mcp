@@ -223,7 +223,7 @@ async function withProof(wallet: BridgeWallet, tool: string, args: Args): Promis
   return { ...args, walletAddress, walletSignature, signatureTimestamp: timestamp, proofNonce: nonce };
 }
 
-function resultValue(result: CallToolResult): unknown {
+export function resultValue(result: CallToolResult): unknown {
   const structured = result.structuredContent as { result?: unknown } | undefined;
   if (structured && 'result' in structured) return structured.result;
   const first = Array.isArray(result.content) ? result.content[0] : undefined;
@@ -242,10 +242,15 @@ function orderMismatch(wallet: BridgeWallet, args: Args, typedData: Record<strin
   if (typedData.primaryType !== 'Order' || !isRecord(message) || !isRecord(domain)) {
     return 'the server returned something other than an order to sign';
   }
+  // A placed order is signed under one domain; its name and version are hashed as written.
+  if (domain.name !== 'ProbableOrderbook' || domain.version !== '1') {
+    return 'the order to sign is under a different signing domain than an order placed here';
+  }
   const same = (a: unknown, b: unknown) => String(a).toLowerCase() === String(b).toLowerCase();
   const checks: Array<[string, unknown, unknown]> = [
     ['maker', message.maker, wallet.account.address],
     ['market', message.market, args.marketAddress],
+    ['verifying contract', domain.verifyingContract, args.marketAddress],
     ['kind', message.kind, orderKind(args)],
     ['side', message.side, args.side],
     ['price', message.price, priceBps(args)],

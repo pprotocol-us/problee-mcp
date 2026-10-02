@@ -54,6 +54,14 @@ whose market, direction, outcome, price and amount match the call. Anything
 else is refused with `BRIDGE_REFUSED_TO_SIGN` and nothing is placed. The code is
 in `src/walletSigner.ts`.
 
+An agent can also state an order in PM terms with `problee_place_order`: a
+market reference, an outcome, buy or sell, a PM budget or shares, and a percent
+price. The bridge asks Problee to plan it, then checks the plan on this machine
+before signing (PM's units and token, the market and outcome, the price, shares,
+budget and expiry) and answers in PM terms. A market buy can exceed its budget
+by at most 0.000001 PM per fill. The code is in `src/pmOrder.ts` and
+`src/pmOrderCheck.ts`.
+
 `--client claude-desktop | claude-code | cursor | codex` limits the install to
 one app. `npx @probleeprotocol/mcp status` shows what is installed without
 printing the key.

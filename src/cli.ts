@@ -9,7 +9,7 @@ import type { ClientId, Result } from './clients.js';
 import { credentialPath, loadCredential, storeCredential } from './credentials.js';
 import { serveSecureProxy } from './proxy.js';
 
-const CLI_VERSION = '1.0.6';
+const CLI_VERSION = '1.0.7';
 const HELP = `\
 problee-mcp ${CLI_VERSION} — securely install the Problee MCP server
 

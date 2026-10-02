@@ -16,6 +16,7 @@ import {
 
 import { endpointFromDiscovery } from "./api.js";
 import { loadCredential } from "./credentials.js";
+import { describePmOrderTool, placingPmOrders } from "./pmOrder.js";
 import { bridgeWalletFrom, describeSignedTools, signingCallTool } from "./walletSigner.js";
 
 export async function serveSecureProxy(version: string): Promise<void> {
@@ -56,10 +57,11 @@ export async function serveSecureProxy(version: string): Promise<void> {
   if (advertised.tools) {
     const forward = (params: Parameters<typeof upstream.callTool>[0]) =>
       upstream.callTool(params) as Promise<CallToolResult>;
-    const callTool = wallet ? signingCallTool(wallet, forward) : forward;
+    // With a wallet the bridge signs, and so can also place an order stated in PM terms.
+    const callTool = wallet ? placingPmOrders(forward, signingCallTool(wallet, forward)) : forward;
     downstream.setRequestHandler(ListToolsRequestSchema, async (request) => {
       const listed = await upstream.listTools(request.params);
-      return wallet ? describeSignedTools(listed) : listed;
+      return wallet ? describePmOrderTool(describeSignedTools(listed)) : listed;
     });
     downstream.setRequestHandler(CallToolRequestSchema, (request) => callTool(request.params));
   }
